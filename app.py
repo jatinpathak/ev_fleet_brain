@@ -16,10 +16,39 @@ import copilot
 import engine_battery as eb
 import engine_carbon as ec
 import engine_readiness as er
+import generate_data
 
 st.set_page_config(page_title="EV Fleet Intelligence Brain", page_icon="🔋", layout="wide")
 
 GREEN, AMBER, RED = "#1a9850", "#f6a800", "#d73027"
+
+
+# ---------------------------------------------------------------------------
+# Cloud bootstrap
+# ---------------------------------------------------------------------------
+# On a fresh deploy (e.g. Streamlit Community Cloud) the synthetic data and
+# trained models are not in the repo -- they are gitignored and rebuilt on
+# demand. Generate/train them once on first run so the app never crashes.
+@st.cache_resource(show_spinner="Preparing data and models (first run only)…")
+def ensure_ready() -> bool:
+    if not (config.BATTERY_DATA_CSV.exists()
+            and config.FLEET_DATA_CSV.exists()
+            and config.EMISSION_FACTORS_JSON.exists()):
+        generate_data.main()
+    if not config.BATTERY_MODEL_PKL.exists():
+        eb.train_model(verbose=False)
+    return True
+
+
+# On Streamlit Community Cloud the API key is provided via st.secrets. Bridge it
+# into the environment so config.get_api_key() (which reads os.environ) finds it.
+def _bridge_secret_api_key() -> None:
+    try:
+        if "ANTHROPIC_API_KEY" in st.secrets:
+            import os
+            os.environ.setdefault("ANTHROPIC_API_KEY", str(st.secrets["ANTHROPIC_API_KEY"]))
+    except Exception:
+        pass  # no secrets file locally -> fine, copilot falls back to templates
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +271,8 @@ PAGES = {
 
 
 def main():
+    _bridge_secret_api_key()
+    ensure_ready()
     st.sidebar.title("EV Fleet Brain")
     choice = st.sidebar.radio("Navigate", list(PAGES.keys()))
     st.sidebar.divider()

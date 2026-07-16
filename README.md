@@ -37,6 +37,32 @@ explanations, so the demo never crashes.
 
 ---
 
+## Deploy a public demo (Streamlit Community Cloud)
+
+The code is deploy-ready: on a fresh machine the app **self-bootstraps** — if the
+synthetic data or trained model is missing, it generates and trains them on the
+first run (they are gitignored, not committed). So no build step is needed.
+
+1. Go to **[share.streamlit.io](https://share.streamlit.io)** and sign in with GitHub.
+2. **New app → From existing repo**, then:
+   - Repository: `jatinpathak/ev_fleet_brain`
+   - Branch: `main`
+   - Main file path: `app.py`
+   - (Advanced) Python version: **3.11** or newer.
+3. *(Optional — for the live LLM copilot)* Open **Advanced settings → Secrets**
+   and paste (see `.streamlit/secrets.toml.example`):
+   ```toml
+   ANTHROPIC_API_KEY = "your_real_key_here"
+   ```
+   Skip this and the copilot still works via templated explanations.
+4. Click **Deploy**. First load takes ~30–60 s while it builds the data and
+   model; after that it is cached and fast. You get a public URL to share.
+
+Safety: `.env`, `.streamlit/secrets.toml`, `data/`, and `models/` are all
+gitignored — no key or artifact is ever committed.
+
+---
+
 ## Running the tests
 
 A four-round test suite proves the tool is reliable before it ever reaches a
