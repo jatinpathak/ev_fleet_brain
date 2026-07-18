@@ -14,38 +14,54 @@ def _md5(path) -> str:
 
 def test_files_exist():
     generate_data.main()
-    assert config.BATTERY_DATA_CSV.exists()
-    assert config.FLEET_DATA_CSV.exists()
-    assert config.EMISSION_FACTORS_JSON.exists()
+    for path in (config.BATTERY_DATA_CSV, config.FLEET_DATA_CSV,
+                 config.SUPPLIERS_CSV, config.MAINTENANCE_CSV,
+                 config.EMISSION_FACTORS_JSON):
+        assert path.exists(), path
 
 
 def test_reproducible_same_seed():
     """Same seed -> byte-identical files across two runs."""
     generate_data.main()
-    h1_batt = _md5(config.BATTERY_DATA_CSV)
-    h1_fleet = _md5(config.FLEET_DATA_CSV)
+    hashes = {p: _md5(p) for p in (config.BATTERY_DATA_CSV, config.FLEET_DATA_CSV,
+                                   config.SUPPLIERS_CSV, config.MAINTENANCE_CSV)}
     generate_data.main()
-    assert _md5(config.BATTERY_DATA_CSV) == h1_batt
-    assert _md5(config.FLEET_DATA_CSV) == h1_fleet
+    for p, h in hashes.items():
+        assert _md5(p) == h, p
 
 
 def test_battery_shape_and_no_nan():
+    generate_data.main()
     df = pd.read_csv(config.BATTERY_DATA_CSV)
     assert df["cell_id"].nunique() == 150
     assert not df.isna().any().any()
-    # Cycle lives spread across the expected range.
+    # New anomaly-proxy columns are present.
+    for col in ("avg_cell_temp_c", "internal_resistance_ohm"):
+        assert col in df.columns
     lives = df.groupby("cell_id")["cycle_life"].first()
-    assert lives.min() >= 150
-    assert lives.max() <= 2300
+    assert lives.min() >= 150 and lives.max() <= 2300
 
 
-def test_fleet_shape_and_no_nan():
+def test_fleet_shape_and_scaling():
+    generate_data.main()  # default 300
     df = pd.read_csv(config.FLEET_DATA_CSV)
-    assert len(df) == 300
+    assert len(df) == config.DEFAULT_N_VEHICLES
     assert not df.isna().any().any()
     assert set(df["duty_cycle"].unique()).issubset({"urban", "highway", "mixed"})
-    assert set(df["vehicle_type"].unique()).issubset({"diesel", "petrol"})
     assert (df["annual_km"] > 0).all()
+    # Parametrised scaling works.
+    generate_data.main(n_vehicles=1000)
+    assert len(pd.read_csv(config.FLEET_DATA_CSV)) == 1000
+    generate_data.main()  # restore default for later tests
+
+
+def test_suppliers_have_required_columns():
+    generate_data.main()
+    df = pd.read_csv(config.SUPPLIERS_CSV)
+    for col in ("supplier_id", "tier", "material", "country", "annual_volume",
+                "quality_defect_rate", "on_time_delivery_rate", "single_source_flag"):
+        assert col in df.columns
+    assert set(df["tier"].unique()).issubset({"Tier-1", "Tier-2", "Tier-3"})
 
 
 def test_emission_factors():
