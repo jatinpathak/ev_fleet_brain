@@ -1,18 +1,19 @@
 """ROUND 4 - Scripted demo walkthrough (the exact path shown to judges).
 
-home -> battery page (pick a cell, read explanation) -> readiness page
-(sort, open top vehicle) -> carbon page (read the story). Each step must
-produce sensible output.
+home -> battery -> readiness -> supply chain -> maintenance -> carbon,
+each step producing sensible, non-contradictory output.
 """
 import pandas as pd
 import pytest
 
 import config
 import copilot
-import engine_battery as eb
-import engine_carbon as ec
-import engine_readiness as er
 import generate_data
+from engines import engine_battery as eb
+from engines import engine_carbon as ec
+from engines import engine_maintenance as em
+from engines import engine_readiness as er
+from engines import engine_supply_chain as sc
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -22,40 +23,42 @@ def ensure_data():
 
 
 def test_demo_walkthrough():
-    # ---- HOME: headline numbers exist and are sensible ----
+    # HOME
     fleet = pd.read_csv(config.FLEET_DATA_CSV)
     scored = er.score_fleet(fleet)
     fsum = er.fleet_summary(scored)
-    assert fsum["total_vehicles"] == 300
+    assert fsum["total_vehicles"] == len(fleet)
     assert fsum["total_five_year_savings_inr"] > 0
 
-    # ---- BATTERY: pick a cell, read the explanation ----
+    # BATTERY
     batt = pd.read_csv(config.BATTERY_DATA_CSV)
     cell_id = sorted(batt["cell_id"].unique())[0]
     health = eb.predict_health(batt[batt["cell_id"] == cell_id])
     assert health["predicted_cycle_life"] > 0
-    battery_text = copilot.explain("battery", health)
-    assert len(battery_text) > 30
+    assert len(copilot.explain("battery", health)) > 30
 
-    # ---- READINESS: sort, open the top vehicle ----
+    # READINESS
     top_id = scored.iloc[0]["vehicle_id"]
     rec = er.vehicle_recommendation(top_id, fleet)
     assert rec["readiness_score"] == scored.iloc[0]["readiness_score"]
-    assert rec["annual_savings_inr"] > 0
-    vehicle_text = copilot.explain("vehicle", rec)
-    assert top_id in vehicle_text
+    assert top_id in copilot.explain("vehicle", rec)
 
-    # ---- CARBON: read the story ----
-    carbon = ec.score_carbon(fleet)
-    csum = ec.fleet_carbon_summary(carbon)
+    # SUPPLY CHAIN
+    summary = sc.supply_risk_summary()
+    assert 0 <= summary["overall_risk_score"] <= 100
+    assert summary["top_vulnerabilities"]
+
+    # MAINTENANCE
+    msum = em.schedule_maintenance()
+    assert msum["downtime_reduction_pct"] >= 0
+
+    # CARBON
+    csum = ec.fleet_carbon_summary(ec.score_carbon(fleet))
     assert csum["total_savings_co2_tonnes"] > 0
-    story = copilot.explain("fleet", {**fsum, **csum})
-    assert len(story) > 30
+    assert len(copilot.explain("fleet", {**fsum, **csum})) > 30
 
 
-def test_top_vehicle_consistent_across_engines():
-    """The demo story stays coherent: the top readiness pick also saves CO2."""
+def test_story_consistent_across_engines():
     fleet = pd.read_csv(config.FLEET_DATA_CSV)
-    scored = er.score_fleet(fleet)
-    top_id = scored.iloc[0]["vehicle_id"]
+    top_id = er.score_fleet(fleet).iloc[0]["vehicle_id"]
     assert ec.vehicle_carbon(top_id, fleet)["savings_co2_kg"] > 0

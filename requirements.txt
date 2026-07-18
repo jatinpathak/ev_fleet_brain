@@ -1,13 +1,26 @@
-# Pinned to the exact versions the app was built and tested against, so the
-# deployed environment (e.g. Streamlit Community Cloud) reproduces it exactly.
-# streamlit is pinned deliberately: 1.59.2 still supports use_container_width,
-# avoiding a break from a future release that removes it.
+# Core dependencies, pinned to the exact versions the app was built and tested
+# against so a fresh deploy (e.g. Streamlit Community Cloud) reproduces it.
+# streamlit is pinned deliberately: 1.59.2 still supports use_container_width.
 streamlit==1.59.2
 pandas==3.0.3
 numpy==2.4.6
 scikit-learn==1.9.0
 xgboost==3.2.0
 plotly==6.9.0
+networkx==3.6.1
 anthropic==0.116.0
 python-dotenv==1.2.2
 pytest==9.1.1
+
+# ---------------------------------------------------------------------------
+# OPTIONAL dependencies — the app runs WITHOUT them via documented fallbacks:
+#   ortools : maintenance scheduler uses CP-SAT if present, else a greedy
+#             heuristic. Install with:  pip install ortools
+#   shap    : battery/readiness show SHAP per-prediction drivers if present,
+#             else fall back to model feature-importance. pip install shap
+#   mapie   : RUL confidence intervals use conformal prediction if present,
+#             else a built-in split-conformal method.  pip install mapie
+# Uncomment to enable the primary (non-fallback) paths:
+# ortools==9.10.4067
+# shap==0.46.0
+# mapie==0.9.1
