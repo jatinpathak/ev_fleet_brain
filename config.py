@@ -132,6 +132,30 @@ CARBON_CREDIT_INR_PER_TONNE = 2000   # illustrative voluntary-market price
 # Vehicle-class labels derived from payload, used for per-class breakdowns.
 VEHICLE_CLASSES = {"light": (0, 500), "medium": (500, 900), "heavy": (900, 10_000)}
 
+# Illustrative 24-hour grid carbon-intensity multipliers (relative to the daily
+# mean of ~0.7 kgCO2/kWh). Night/solar hours are cleaner; evening peak dirtier.
+# Source: shaped after typical CEA India diurnal patterns — illustrative only.
+GRID_HOURLY_MULTIPLIER = [
+    0.85, 0.82, 0.80, 0.80, 0.82, 0.88,   # 00–05 overnight (cleaner)
+    0.95, 1.00, 1.02, 0.98, 0.90, 0.85,   # 06–11 solar ramp
+    0.82, 0.83, 0.86, 0.92, 1.00, 1.12,   # 12–17 afternoon → ramp
+    1.20, 1.18, 1.10, 1.02, 0.95, 0.90,   # 18–23 evening peak
+]
+
+# ---------------------------------------------------------------------------
+# Scenario simulation (engine_scenario)
+# ---------------------------------------------------------------------------
+PACK_REPLACEMENT_COST_INR = 400_000     # cost to replace one degraded pack (illustrative)
+RUL_REPLACE_THRESHOLD_CYCLES = 300      # replace a pack once RUL falls below this
+AVG_EV_CAPEX_INR = 1_200_000            # avg capex per new EV for expansion capex
+
+# ---------------------------------------------------------------------------
+# Battery passport (illustrative lifecycle / warranty reference)
+# ---------------------------------------------------------------------------
+BATTERY_WARRANTY_CYCLES = 2000
+BATTERY_SECOND_LIFE_SOH = 0.70          # below this, retire from vehicle -> second life
+BATTERY_RECYCLE_SOH = 0.60              # below this, send to recycling
+
 # ---------------------------------------------------------------------------
 # Manufacturing quality (engine_quality, Tier 3 MVP)
 # ---------------------------------------------------------------------------

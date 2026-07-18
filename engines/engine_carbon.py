@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pandas as pd
 
 import config
@@ -169,6 +170,47 @@ def fleet_carbon_summary(carbon_df: pd.DataFrame | None = None) -> dict:
         "total_savings_cost_inr": round(float(df["savings_cost_inr"].sum()), 0),
         "carbon_credit_value_inr": round(credit_value, 0),
         "savings_by_class_tonnes": by_class,
+    }
+
+
+def hourly_grid_intensity() -> pd.DataFrame:
+    """24-hour grid carbon-intensity profile (kgCO2/kWh), illustrative."""
+    base = load_emission_factors()["india_grid_co2_per_kwh"]
+    mult = config.GRID_HOURLY_MULTIPLIER
+    return pd.DataFrame({
+        "hour": list(range(24)),
+        "multiplier": mult,
+        "kg_co2_per_kwh": [round(base * m, 4) for m in mult],
+    })
+
+
+def smart_charging_carbon(fleet_df: pd.DataFrame | None = None,
+                          factors: dict | None = None) -> dict:
+    """Compare charging CO₂ under off-peak vs evening-peak windows.
+
+    Charging the fleet's nightly energy in the cleanest overnight hours instead
+    of the evening peak cuts Scope 3 (grid) CO₂ — the case for smart charging.
+    """
+    df = fleet_df if fleet_df is not None else _load_fleet_df()
+    f = factors if factors is not None else load_emission_factors()
+    demand_kwh = float((df["avg_daily_range_km"] / f["ev_efficiency_km_per_kwh"]).sum())
+    base = f["india_grid_co2_per_kwh"]
+    mult = config.GRID_HOURLY_MULTIPLIER
+
+    off_peak_hours = [0, 1, 2, 3, 4, 5]           # cleanest overnight window
+    peak_hours = [18, 19, 20, 21]                 # dirtiest evening window
+    off_intensity = base * np.mean([mult[h] for h in off_peak_hours])
+    peak_intensity = base * np.mean([mult[h] for h in peak_hours])
+
+    off_kg = demand_kwh * off_intensity
+    peak_kg = demand_kwh * peak_intensity
+    return {
+        "daily_energy_kwh": round(demand_kwh, 0),
+        "off_peak_co2_kg_day": round(off_kg, 0),
+        "peak_co2_kg_day": round(peak_kg, 0),
+        "co2_saved_kg_day": round(peak_kg - off_kg, 0),
+        "co2_saved_pct": round(100 * (peak_kg - off_kg) / peak_kg, 1) if peak_kg else 0.0,
+        "annual_co2_saved_tonnes": round((peak_kg - off_kg) * 365 / 1000, 1),
     }
 
 

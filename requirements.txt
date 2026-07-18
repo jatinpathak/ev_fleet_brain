@@ -12,6 +12,10 @@ anthropic==0.116.0
 python-dotenv==1.2.2
 pytest==9.1.1
 
+# REST API layer (api.py). Small, pinned; the Streamlit dashboard runs without them.
+fastapi==0.115.6
+uvicorn==0.34.0
+
 # ---------------------------------------------------------------------------
 # OPTIONAL dependencies — the app runs WITHOUT them via documented fallbacks:
 #   ortools : maintenance scheduler uses CP-SAT if present, else a greedy

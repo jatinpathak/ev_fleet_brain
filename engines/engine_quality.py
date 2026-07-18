@@ -77,6 +77,61 @@ def incoming_quality() -> pd.DataFrame:
     return g.sort_values("avg_defect_rate", ascending=False).reset_index(drop=True)
 
 
+def root_cause_hints() -> list[dict]:
+    """Correlate quality signals to likely causes (suppliers / process drift).
+
+    A light root-cause-analysis layer: it ranks incoming materials by defect
+    rate, points at the worst supplier for each, and flags SPC drift. Heuristic
+    correlations, clearly a decision-support aid — not a validated RCA engine.
+    """
+    hints = []
+    iq = incoming_quality()
+    if not config.SUPPLIERS_CSV.exists():
+        return hints
+    suppliers = pd.read_csv(config.SUPPLIERS_CSV)
+
+    # 1) Worst incoming material -> its worst supplier.
+    if len(iq):
+        worst = iq.iloc[0]
+        subs = suppliers[suppliers["material"] == worst["material"]]
+        if len(subs):
+            culprit = subs.sort_values("quality_defect_rate", ascending=False).iloc[0]
+            hints.append({
+                "signal": f"High incoming defect rate on {worst['material']} "
+                          f"({worst['ppm']:,.0f} ppm)",
+                "likely_cause": f"Supplier {culprit['supplier_name']} "
+                                f"({culprit['country']}), defect rate "
+                                f"{culprit['quality_defect_rate']*100:.2f}%",
+                "action": "Audit this supplier's incoming lots; tighten acceptance sampling.",
+                "severity": "high" if worst["ppm"] > 30000 else "medium",
+            })
+
+    # 2) SPC drift -> process special cause.
+    spc = spc_series()
+    n_ooc = int(spc["out_of_control"].sum())
+    if n_ooc:
+        hints.append({
+            "signal": f"{n_ooc} SPC points beyond 3σ control limits (late-run drift)",
+            "likely_cause": "Process special cause — tool wear or setpoint drift in the "
+                            "final third of the run.",
+            "action": "Trigger a line stop + re-centre the process; investigate the drift.",
+            "severity": "high",
+        })
+
+    # 3) Low on-time delivery -> schedule risk feeding quality shortcuts.
+    late = suppliers.sort_values("on_time_delivery_rate").head(1)
+    if len(late) and late.iloc[0]["on_time_delivery_rate"] < 0.85:
+        s = late.iloc[0]
+        hints.append({
+            "signal": f"Low on-time delivery from {s['supplier_name']} "
+                      f"({s['on_time_delivery_rate']*100:.0f}%)",
+            "likely_cause": "Expediting/late lots correlate with rushed incoming inspection.",
+            "action": "Add buffer stock; de-risk the line from this supplier's slips.",
+            "severity": "medium",
+        })
+    return hints
+
+
 def kpis() -> list[KPI]:
     spc = spc_series()
     iq = incoming_quality()
