@@ -237,6 +237,70 @@ def kpis(df: pd.DataFrame | None = None) -> list[KPI]:
     ]
 
 
+def propagate_risk(supplier_id: str, df: pd.DataFrame | None = None) -> dict:
+    """Propagate a disruption at one supplier downstream through the graph.
+
+    Edges point child → downstream customer, so the *descendants* of a disrupted
+    node are everything that depends on it (its refiner, cell maker, ultimately
+    the packs/vehicles). Returns the blast radius and an amplified risk score.
+    """
+    import networkx as nx
+
+    df = df if df is not None else load_suppliers()
+    g = nx.DiGraph()
+    for _, s in df.iterrows():
+        g.add_node(s["supplier_id"], name=s["supplier_name"], tier=s["tier"],
+                   material=s["material"], country=s["country"])
+    for _, s in df.iterrows():
+        if s["supplies_to"]:
+            g.add_edge(s["supplier_id"], s["supplies_to"])
+
+    if supplier_id not in g:
+        raise KeyError(f"Unknown supplier_id: {supplier_id}")
+
+    downstream = list(nx.descendants(g, supplier_id))
+    affected = [supplier_id] + downstream
+    makers = [n for n in affected if g.nodes[n]["tier"] == "Tier-1"]
+    base = country_risk(df.loc[df.supplier_id == supplier_id, "country"].iloc[0])
+    # Amplify by how many cell makers lose this input.
+    propagated = float(min(1.0, base * (1 + 0.5 * len(makers))))
+
+    return {
+        "disrupted": supplier_id,
+        "disrupted_name": g.nodes[supplier_id]["name"],
+        "material": g.nodes[supplier_id]["material"],
+        "n_affected": len(affected),
+        "affected_nodes": [{"id": n, "name": g.nodes[n]["name"],
+                            "tier": g.nodes[n]["tier"], "material": g.nodes[n]["material"]}
+                           for n in affected],
+        "affected_cell_makers": [g.nodes[m]["name"] for m in makers],
+        "base_risk": round(base, 2),
+        "propagated_risk": round(propagated, 2),
+    }
+
+
+def recommendation(summary: dict | None = None) -> "Recommendation":
+    """Mitigation for the top supply-chain vulnerability."""
+    from core.recommend import Recommendation
+    from core.kpis import rupees
+
+    s = summary if summary is not None else supply_risk_summary()
+    vulns = s["top_vulnerabilities"]
+    top = vulns[0] if vulns else {"issue": "supply risk", "detail": "", "exposure_inr": 0,
+                                  "severity": "medium"}
+    conf = {"high": 0.82, "medium": 0.6}.get(top["severity"], 0.5)
+    return Recommendation(
+        title=f"Mitigate: {top['issue']}",
+        action="Qualify a second source and hold a strategic buffer stock",
+        confidence=conf,
+        reasoning=f"{top['detail']} This is the single largest exposure in the supply base.",
+        impact={"Exposure reduced": rupees(top["exposure_inr"]),
+                "Overall risk": f"{s['overall_risk_score']:.0f}/100"},
+        alternatives=[{"option": "Dual-source", "note": "Split volume across two qualified suppliers."},
+                      {"option": "Buffer stock", "note": "Hold 4–8 weeks of the critical material."}])
+
+
 if __name__ == "__main__":
     print(supplier_concentration_risk().to_string(index=False))
     print("\nSummary:", supply_risk_summary())
+    print("\nPropagate S10:", propagate_risk("S10"))

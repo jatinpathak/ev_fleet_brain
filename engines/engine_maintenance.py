@@ -204,8 +204,12 @@ def _baseline_weighted_lateness(events: pd.DataFrame) -> float:
 # Charging optimisation
 # ---------------------------------------------------------------------------
 def optimise_charging(fleet_df: pd.DataFrame | None = None,
-                      factors: dict | None = None) -> dict:
-    """Fill the cheapest hours first to meet fleet energy demand at min cost."""
+                      factors: dict | None = None,
+                      tariff_multiplier: float = 1.0) -> dict:
+    """Fill the cheapest hours first to meet fleet energy demand at min cost.
+
+    ``tariff_multiplier`` scales all tariffs (used by the tariff-change scenario).
+    """
     if fleet_df is None:
         fleet_df = pd.read_csv(config.FLEET_DATA_CSV)
     eff = (factors or {}).get("ev_efficiency_km_per_kwh", 4.5)
@@ -227,7 +231,7 @@ def optimise_charging(fleet_df: pd.DataFrame | None = None,
         for name, hours in buckets:
             if remaining <= 0:
                 break
-            tariff = config.TOU_TARIFF_INR_PER_KWH[name]
+            tariff = config.TOU_TARIFF_INR_PER_KWH[name] * tariff_multiplier
             cap = hourly_capacity * hours
             served = min(remaining, cap)
             opt_cost += served * tariff
@@ -238,7 +242,7 @@ def optimise_charging(fleet_df: pd.DataFrame | None = None,
         unmet = max(remaining, 0)
 
         # Naive baseline: charge everything at the flat/peak tariff.
-        peak_tariff = config.TOU_TARIFF_INR_PER_KWH["peak"]
+        peak_tariff = config.TOU_TARIFF_INR_PER_KWH["peak"] * tariff_multiplier
         baseline_cost = demand_kwh * peak_tariff
         cost_saved = baseline_cost - opt_cost
 
@@ -273,6 +277,46 @@ def kpis(events: pd.DataFrame | None = None,
         KPI("Charger utilisation", f"{c['charger_utilisation_pct']:.0f}", "%",
             "Share of overnight charger capacity used.", "neutral"),
     ]
+
+
+def recommendation(events: pd.DataFrame | None = None,
+                   fleet_df: pd.DataFrame | None = None) -> "Recommendation":
+    """Actionable maintenance/charging recommendation with impact & alternatives."""
+    from core.recommend import Recommendation
+    from core.kpis import rupees
+
+    m = schedule_maintenance(events)
+    c = optimise_charging(fleet_df)
+    conf = 0.85 if m["method"].startswith("cp-sat") else 0.7
+    return Recommendation(
+        title="Adopt the optimised maintenance & charging plan",
+        action=f"Run the {m['method']} schedule and shift charging to off-peak hours",
+        confidence=conf,
+        reasoning=(f"Prioritising high-priority jobs cuts weighted downtime "
+                   f"{m['downtime_reduction_pct']}%; cheapest-hours-first charging "
+                   f"beats a peak-tariff baseline by {c['cost_saved_pct']}%."),
+        impact={"Downtime": f"-{m['downtime_reduction_pct']}%",
+                "Charging saved": f"{rupees(c['cost_saved_inr'])}/day",
+                "Charger utilisation": f"{c['charger_utilisation_pct']}%"},
+        alternatives=[{"option": "Add a workshop bay", "note": "Relieves the high-priority backlog further."},
+                      {"option": "Add depot chargers", "note": "Raises off-peak throughput, more cost saved."}])
+
+
+def resource_utilisation(events: pd.DataFrame | None = None,
+                         fleet_df: pd.DataFrame | None = None) -> dict:
+    """Utilisation of the depot's constrained resources (bays, chargers, techs)."""
+    m = schedule_maintenance(events)
+    c = optimise_charging(fleet_df)
+    sched = m["schedule"]
+    bay_hours_used = float((sched.groupby("assigned_day")["job_type"].count()
+                            * config.SERVICE_HOURS).mean()) if len(sched) else 0.0
+    bay_capacity = config.WORKSHOP_BAYS * config.BAY_HOURS_PER_DAY
+    return {
+        "bay_utilisation_pct": round(min(100.0, 100.0 * bay_hours_used / bay_capacity), 1),
+        "technician_count": config.WORKSHOP_BAYS,        # one tech per bay (illustrative)
+        "charger_utilisation_pct": c["charger_utilisation_pct"],
+        "jobs_active": m.get("n_active", len(sched)),
+    }
 
 
 if __name__ == "__main__":

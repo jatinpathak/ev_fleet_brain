@@ -19,13 +19,15 @@ pytestmark = pytest.mark.skipif(not HAVE_APPTEST, reason="streamlit AppTest unav
 APP = str(config.ROOT / "app.py")
 
 PAGES = [
-    "🏠 Executive Home",
+    "🏠 Command Center",
     "🔋 Battery Health",
     "🚚 Fleet Readiness",
     "🔗 Supply-Chain Risk",
     "🛠️ Maintenance & Charging",
     "🌱 Carbon Impact",
-    "🛰️ Digital Twin / Quality",
+    "🧪 Scenario Lab",
+    "🛰️ Digital Twin",
+    "⚙️ System & Monitoring",
 ]
 
 

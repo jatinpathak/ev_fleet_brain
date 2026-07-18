@@ -286,6 +286,29 @@ def kpis(scored: pd.DataFrame | None = None) -> list[KPI]:
     ]
 
 
+def recommendation(scored: pd.DataFrame | None = None) -> "Recommendation":
+    """Which vehicle to electrify first, with impact and alternatives."""
+    from core.recommend import Recommendation
+    from core.kpis import rupees
+
+    df = scored if scored is not None else score_fleet()
+    top = df.iloc[0]
+    alts = [{"option": f"{r['vehicle_id']} → {r['ev_match']}",
+             "note": f"score {r['readiness_score']}, payback {r['payback_years']} yrs"}
+            for _, r in df.iloc[1:3].iterrows()]
+    return Recommendation(
+        title=f"Electrify {top['vehicle_id']} first ({top['ev_match']})",
+        action="Prioritise this vehicle in the next procurement batch",
+        confidence=float(top["confidence"]),
+        reasoning=(f"Highest readiness ({top['readiness_score']}/100): the {top['ev_match']} "
+                   f"covers its {top['avg_daily_range_km']} km/day route and payload, with a "
+                   f"{top['payback_years']}-year payback."),
+        impact={"5-yr saving": rupees(top["five_year_savings_inr"]),
+                "TCO saving": rupees(top["tco_savings_5yr_inr"]),
+                "Payback": f"{top['payback_years']} yrs"},
+        alternatives=alts)
+
+
 if __name__ == "__main__":
     scored = score_fleet()
     print(scored.head(10).to_string(index=False))

@@ -1,27 +1,61 @@
-# 🔋 EV Fleet Intelligence Brain — v2
+# 🔋 EV Fleet Intelligence Brain — v3
 
 **ET AI Hackathon 2026 · Problem 3 — AI for Industrial EV Supply Chain & Asset Intelligence**
 
 A single decision-support platform that helps a commercial fleet operator
 electrify a diesel/petrol fleet **intelligently, not all at once** — and manage
-the battery **supply chain, assets, maintenance and carbon** around it. Six
-domain engines share one data layer, are routed by an **orchestrating copilot**,
-and are shown on one executive-grade Streamlit dashboard.
+the battery **supply chain, assets, maintenance and carbon** around it. Seven
+domain engines share one data layer, are coordinated by a **bounded multi-agent
+planner**, stress-tested by a **scenario simulator**, and shown on one
+executive-grade Streamlit dashboard — with a REST API and Docker for integration.
 
 | Engine | Tier | Question it answers |
 | --- | --- | --- |
-| 🔋 **Battery Health & RUL** | 1 | How healthy is each cell, how many cycles remain (with a confidence interval), and which cells degrade abnormally fast? |
+| 🔋 **Battery Health & RUL** | 1 | How healthy is each cell, how many cycles remain (with a confidence interval), which degrade abnormally fast — plus a battery passport. |
 | 🚚 **Fleet Readiness** | 1 | Which vehicles switch to EV first, how confident are we, and what's the 5-year TCO? |
-| 🔗 **Supply-Chain Risk** | 1 | Where is our battery-material supply fragile (concentration, geopolitics, single-sourcing) and what ₹ is exposed? |
+| 🔗 **Supply-Chain Risk** | 1 | Where is the battery-material supply fragile, what ₹ is exposed, and what happens if a node is disrupted? |
 | 🛠️ **Maintenance & Charging** | 2 (MVP) | How do we schedule maintenance and overnight charging to cut downtime and cost? |
-| 🌱 **Carbon Impact** | 2 | What's the Scope 1 / 2 / 3 CO₂ picture and the ₹ credit value? |
-| 🛰️ **Digital Twin / Quality** | 3 (MVP) | Live fleet-state view + a light manufacturing-quality (SPC) view. |
-| 💬 **Copilot (orchestrator)** | 1 | Routes any question to the right engine(s) and explains the result in plain English. |
+| 🌱 **Carbon Impact** | 2 | Scope 1/2/3 CO₂, the ₹ credit value, and the smart-charging (hourly-grid) opportunity. |
+| 🧪 **Scenario Simulation** | ⭐ | What-if: supplier disruption, accelerated degradation, tariff change, fleet expansion. |
+| 🛰️ **Digital Twin / Quality** | 3 (MVP) | Unified live fleet-state view + light manufacturing-quality (SPC + root-cause). |
+| 🧠 **Multi-agent planner (copilot)** | 1 | Decomposes a question, calls the right agents (loop-guarded), and shows its reasoning. |
 
 > **Honesty first.** Every simplified module carries an **MVP / illustrative**
 > badge in the UI. The battery accuracy headline comes from real-data-shaped
 > cycling; every other dataset is clearly labelled **synthetic**. See
 > [Honest disclosure](#honest-disclosure).
+
+---
+
+## What's new in v3 (final polish — Innovation + UX)
+
+Building on v2's audited 6-engine core, v3 adds the innovation and
+user-experience layer, and a cheap-but-credible integration story. See
+[`DEMO_QA.md`](DEMO_QA.md) for judge-question answers.
+
+### Roadmap → Resolution map
+
+| Roadmap item | Resolved by | Depth |
+| --- | --- | --- |
+| True multi-agent planner | `core/orchestrator.py` bounded planner + **visible plan trace** | Full |
+| Executive Command Center | new home page + **Today's Highlights** + alert centre | Full |
+| Scenario simulation ⭐ | `engines/engine_scenario.py` (4 scenarios) + Scenario Lab page | Full |
+| Richer AI recommendations | `core/recommend.py`: confidence + reasoning + ₹/CO₂ impact + alternatives on every engine | Full |
+| Supplier knowledge graph + propagation | `engine_supply_chain.propagate_risk()` + interactive graph | Full |
+| Manufacturing quality + RCA + traceability | `engine_quality.root_cause_hints()` | MVP (labelled) |
+| Battery Passport | `engine_battery.battery_passport()` + panel | Full |
+| Hourly grid emission factors | `engine_carbon` 24h profile + smart-charging | Full |
+| Geospatial maps | fleet / charging-depot / supplier maps | Full |
+| Digital Twin | unified asset view | MVP (labelled) |
+| Monitoring stub (drift) | `core/monitoring.py` (PSI) + System page | Full (stub) |
+| Containerisation + REST API | `Dockerfile`, `docker-compose.yml`, `api.py` (FastAPI) | Full |
+| Feature store | `core/feature_store.py` (SQLite) | Full |
+| UI/UX (icons, semantic colours, heatmap, treemap, network, drill-down) | dashboard | Full |
+| TFT/LSTM, GNN, message queues, retraining | intentionally skipped per guardrails | — |
+
+**Guardrails honoured:** XGBoost stays the **primary** battery model (real,
+defensible accuracy); no enterprise-infra rabbit holes (no queues/streaming/
+retraining); everything degrades gracefully; nothing overclaims.
 
 ---
 
@@ -78,7 +112,21 @@ python generate_data.py --n-vehicles 10000   # rebuild the fleet at 10k
 
 …or just move the **“Fleet size”** slider in the sidebar to **10,000**: the app
 regenerates, caches heavy loads with `@st.cache_data`, and reports the per-page
-render time so you can see it stays responsive.
+render time so you can see it stays responsive (vectorised scoring: 10k
+vehicles in ~20 ms).
+
+### REST API + Docker (integration story)
+
+```bash
+# REST API (interactive docs at http://localhost:8000/docs)
+uvicorn api:app --port 8000
+#   GET  /fleet/summary
+#   POST /battery/predict  {"cell_id": "CELL_010"}
+#   POST /scenario/run     {"name": "tariff_change", "params": {"pct": 15}}
+
+# Or the whole stack (dashboard :8501 + API :8000) in one command:
+docker compose up
+```
 
 ---
 
@@ -106,25 +154,32 @@ ev_fleet_brain/
 │   ├── suppliers_synthetic.csv          # battery-material supply chain
 │   ├── maintenance_events_synthetic.csv
 │   └── emission_factors.json
-├── core/                        cross-cutting quality layer (implement once)
-│   ├── orchestrator.py          routes queries across engines ("agent" layer)
+├── core/                        cross-cutting layer (implement once, reuse everywhere)
+│   ├── orchestrator.py          bounded multi-agent PLANNER (visible plan trace)
+│   ├── recommend.py             structured recommendations (confidence/impact/alts)
 │   ├── kpis.py                  KPI structure + formatting
 │   ├── explain.py               SHAP / feature-importance helpers
 │   ├── uncertainty.py           conformal / bootstrap confidence intervals
+│   ├── feature_store.py         SQLite-backed feature store
+│   ├── monitoring.py            model-drift (PSI) monitoring stub
 │   └── logging_config.py        structured JSON logging
 ├── engines/
-│   ├── engine_battery.py        + anomaly detection, CIs, SoH trend
-│   ├── engine_readiness.py      + confidence-scored index, full TCO
-│   ├── engine_carbon.py         + Scope 1/2/3 accounting, per-class
-│   ├── engine_supply_chain.py   NEW (Tier 1)
-│   ├── engine_maintenance.py    NEW (Tier 2: maintenance + charging optimiser)
-│   └── engine_quality.py        NEW (Tier 3: light manufacturing-quality view)
-├── copilot.py                   agentic: routes via orchestrator, then explains
+│   ├── engine_battery.py        anomaly detection, CIs, snapshot, PASSPORT
+│   ├── engine_readiness.py      confidence-scored index, full TCO
+│   ├── engine_carbon.py         Scope 1/2/3 + HOURLY grid + smart charging
+│   ├── engine_supply_chain.py   HHI, geopolitics, graph + risk PROPAGATION
+│   ├── engine_maintenance.py    CP-SAT/greedy maintenance + charging optimiser
+│   ├── engine_quality.py        SPC + root-cause hints (RCA)
+│   └── engine_scenario.py       NEW: 4 what-if scenarios ⭐
+├── copilot.py                   planner-driven: plans, calls agents, explains
+├── api.py                       FastAPI REST layer (3 endpoints)
+├── Dockerfile, docker-compose.yml   one-command containerised run
 ├── config.py                    paths, constants, EV catalog, reference tables
-├── app.py                       multi-page dashboard (7 pages, copilot on each)
+├── app.py                       9-page dashboard (planner + scenario on each/own page)
 ├── generate_data.py             parametrized synthetic data (scales to N)
 ├── run_pipeline.py              ONE command to build everything
-├── tests/                       pytest unit + integration + smoke + demo tests
+├── tests/                       pytest unit + integration + smoke + demo + v3 tests
+├── DEMO_QA.md                   judge-question crib sheet
 ├── requirements.txt
 └── README.md
 ```

@@ -242,6 +242,43 @@ def soh_trend(cell_history: pd.DataFrame) -> pd.DataFrame:
     return hist[["cycle", "discharge_capacity_ah", "soh"]]
 
 
+def operational_snapshot(df: pd.DataFrame | None = None, seed: int | None = None) -> pd.DataFrame:
+    """Turn the lab dataset (each cell cycled to death) into an OPERATIONAL fleet.
+
+    The raw dataset cycles every cell to end-of-life to obtain the training
+    label. A deployed fleet's packs are at varied mid-life ages, so here each
+    cell is observed at a deterministic fraction of its life, giving a realistic
+    spread of state-of-health and remaining-useful-life. Used by the fleet
+    battery view, KPIs and the degradation scenario.
+    """
+    df = df if df is not None else _load_battery_df()
+    bundle = load_model()
+    model, cols = bundle["model"], bundle["features"]
+    rng = np.random.default_rng(config.RANDOM_SEED if seed is None else seed)
+
+    rows = []
+    for cid, hist in df.groupby("cell_id"):
+        hist = hist.sort_values("cycle")
+        life = int(hist["cycle_life"].iloc[0])
+        current = max(int(life * float(rng.uniform(0.15, 0.75))), 5)
+        sub = hist[hist["cycle"] <= current]
+        if len(sub) < 2:
+            sub = hist.head(5)
+            current = int(sub["cycle"].max())
+        feats = extract_features(sub)
+        pred = float(np.power(10, model.predict(np.array([[feats[c] for c in cols]]))[0]))
+        cap = float(sub["discharge_capacity_ah"].iloc[-1])
+        rows.append({
+            "cell_id": cid,
+            "current_cycle": current,
+            "predicted_cycle_life": int(round(pred)),
+            "state_of_health": round(float(np.clip(cap / config.NOMINAL_CAPACITY_AH, 0, 1)), 4),
+            "remaining_useful_life": int(max(pred - current, 0)),
+            "status": health_status(float(np.clip(cap / config.NOMINAL_CAPACITY_AH, 0, 1))),
+        })
+    return pd.DataFrame(rows).sort_values("remaining_useful_life").reset_index(drop=True)
+
+
 def detect_anomalies(df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Flag cells degrading abnormally fast vs their cohort (IsolationForest)."""
     df = df if df is not None else _load_battery_df()
@@ -269,11 +306,10 @@ def kpis(df: pd.DataFrame | None = None) -> list[KPI]:
     bundle = load_model()
     metrics = bundle["metrics"]
     anomalies = detect_anomalies(df)
+    snap = operational_snapshot(df)
 
-    # Mean SoH across cells at their latest observed cycle.
-    latest = df.sort_values("cycle").groupby("cell_id").tail(1)
-    mean_soh = float((latest["discharge_capacity_ah"] / config.NOMINAL_CAPACITY_AH)
-                     .clip(0, 1).mean())
+    mean_soh = float(snap["state_of_health"].mean())
+    mean_rul = float(snap["remaining_useful_life"].mean())
     n_anom = int(anomalies["anomaly"].sum())
 
     return [
@@ -287,9 +323,97 @@ def kpis(df: pd.DataFrame | None = None) -> list[KPI]:
             "Cells fading abnormally fast vs their cohort — prioritise for inspection.",
             "warn" if n_anom else "good"),
         KPI("Mean state of health", f"{mean_soh*100:.0f}", "%",
-            "Average remaining capacity across the pack fleet.",
+            "Average remaining capacity across the operational pack fleet.",
             tone_for(mean_soh, 0.85, 0.80, higher_is_worse=False)),
+        KPI("Mean remaining life", f"{mean_rul:,.0f}", "cycles",
+            "Average remaining useful life across packs at their current age.",
+            tone_for(mean_rul, 400, 200, higher_is_worse=False)),
     ]
+
+
+def battery_passport(cell_id: str, df: pd.DataFrame | None = None) -> dict:
+    """A per-cell 'battery passport': lifecycle, chemistry, warranty, second-life.
+
+    A lightweight EU-style digital battery passport — mostly a data/display
+    feature that ties into supply-chain traceability. Illustrative fields.
+    """
+    df = df if df is not None else _load_battery_df()
+    hist = df[df["cell_id"] == cell_id]
+    if hist.empty:
+        raise KeyError(f"Unknown cell_id: {cell_id}")
+    health = predict_health(hist)
+    soh = health["state_of_health"]
+
+    if soh >= config.BATTERY_SECOND_LIFE_SOH:
+        stage = "in-vehicle (first life)"
+    elif soh >= config.BATTERY_RECYCLE_SOH:
+        stage = "second-life eligible (stationary storage)"
+    else:
+        stage = "end-of-life (recycle)"
+
+    # Manufacturer + origin via supply-chain traceability (best-effort).
+    maker, origin = None, None
+    try:
+        from engines import engine_supply_chain as sc
+        tr = sc.material_traceability(cell_id)
+        maker, origin = tr.get("cell_maker"), tr.get("cell_maker_country")
+    except Exception:
+        pass
+
+    warranty = config.BATTERY_WARRANTY_CYCLES
+    used = health["current_cycle"]
+    return {
+        "cell_id": cell_id,
+        "chemistry": "LFP",
+        "manufacturer": maker or "Amara Cells",
+        "origin_country": origin or "India",
+        "nominal_capacity_ah": config.NOMINAL_CAPACITY_AH,
+        "state_of_health_pct": round(soh * 100, 1),
+        "cycles_used": used,
+        "predicted_cycle_life": health["predicted_cycle_life"],
+        "warranty_cycles": warranty,
+        "warranty_remaining_cycles": int(max(warranty - used, 0)),
+        "warranty_status": "in warranty" if used < warranty else "out of warranty",
+        "lifecycle_stage": stage,
+        "second_life_soh_threshold_pct": round(config.BATTERY_SECOND_LIFE_SOH * 100),
+        "recycle_soh_threshold_pct": round(config.BATTERY_RECYCLE_SOH * 100),
+    }
+
+
+def recommendation(cell_result: dict) -> "Recommendation":
+    """A richer, actionable recommendation for one battery/pack."""
+    from core.recommend import Recommendation
+    from core.kpis import rupees
+
+    pi = cell_result.get("predicted_cycle_life_pi", [0, 0])
+    pred = max(cell_result.get("predicted_cycle_life", 1), 1)
+    rel_width = (pi[1] - pi[0]) / pred if pred else 1.0
+    confidence = float(np.clip(1.0 - rel_width, 0.35, 0.95))
+    rul = cell_result.get("remaining_useful_life", 0)
+    status = cell_result.get("status", "degraded")
+
+    if status == "critical" or rul < config.RUL_REPLACE_THRESHOLD_CYCLES:
+        title, action = "Replace this pack soon", "Schedule replacement before end-of-life"
+        impact = {"Downtime avoided": "unplanned field failure",
+                  "Replacement cost": rupees(config.PACK_REPLACEMENT_COST_INR)}
+        alts = [{"option": "Second-life redeploy", "note": "Move to a lower-duty role if SoH ≥ 70%."},
+                {"option": "Intensive monitoring", "note": "Weekly checks to squeeze remaining life."}]
+    elif status == "degraded":
+        title, action = "Monitor closely", "Add to the weekly inspection list"
+        impact = {"Remaining life": f"~{rul:,} cycles", "Risk": "moderate fade"}
+        alts = [{"option": "Rebalance duty cycle", "note": "Assign shorter routes to slow fade."},
+                {"option": "Defer replacement", "note": "Re-check at next service interval."}]
+    else:
+        title, action = "Healthy — no action", "Continue normal operation"
+        impact = {"Remaining life": f"~{rul:,} cycles", "Status": "healthy"}
+        alts = [{"option": "Standard servicing", "note": "Keep to the routine schedule."}]
+
+    return Recommendation(
+        title=title, action=action, confidence=confidence,
+        reasoning=(f"State of health {cell_result.get('state_of_health', 0)*100:.0f}% with "
+                   f"~{rul:,} cycles remaining (90% interval {pi[0]:,}–{pi[1]:,}). "
+                   f"Confidence reflects the width of that prediction interval."),
+        impact=impact, alternatives=alts)
 
 
 if __name__ == "__main__":
