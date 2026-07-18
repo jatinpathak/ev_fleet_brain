@@ -1,6 +1,5 @@
 # Core dependencies, pinned to the exact versions the app was built and tested
 # against so a fresh deploy (e.g. Streamlit Community Cloud) reproduces it.
-# streamlit is pinned deliberately: 1.59.2 still supports use_container_width.
 streamlit==1.59.2
 pandas==3.0.3
 numpy==2.4.6
@@ -12,9 +11,10 @@ anthropic==0.116.0
 python-dotenv==1.2.2
 pytest==9.1.1
 
-# REST API layer (api.py). Small, pinned; the Streamlit dashboard runs without them.
-fastapi==0.115.6
-uvicorn==0.34.0
+# NOTE: the optional REST API (api.py) needs `fastapi` + `uvicorn`. They are
+# intentionally NOT listed here: pinning fastapi drags in an older `starlette`
+# that conflicts with streamlit and breaks the Streamlit Cloud deploy. Install
+# them only where you run the API:  pip install fastapi uvicorn
 
 # ---------------------------------------------------------------------------
 # OPTIONAL dependencies — the app runs WITHOUT them via documented fallbacks:

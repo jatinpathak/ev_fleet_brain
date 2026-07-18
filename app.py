@@ -283,7 +283,7 @@ def page_battery(n: int):
                   annotation_text="90% life interval")
     fig.update_layout(title=f"Capacity fade — {cell_id}", xaxis_title="Cycle",
                       yaxis_title="Discharge capacity (Ah)", height=380)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     rc1, rc2 = st.columns([3, 2])
     with rc1:
@@ -322,7 +322,7 @@ def page_readiness(n: int):
     st.dataframe(
         view[["vehicle_id", "vehicle_type", "duty_cycle", "depot", "readiness_score",
               "confidence", "ev_match", "payback_years", "five_year_savings_inr"]].head(500),
-        use_container_width=True, hide_index=True)
+        width='stretch', hide_index=True)
 
     # Readiness heatmap: depot x duty cycle.
     if "depot" in scored:
@@ -332,7 +332,7 @@ def page_readiness(n: int):
                                    colorscale="RdYlGn", zmin=0, zmax=100,
                                    colorbar=dict(title="Readiness")))
         fig.update_layout(title="Mean readiness by depot × duty cycle", height=320)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     copilot_box("Which vehicles should we electrify first and why?", "readiness")
 
 
@@ -394,7 +394,7 @@ def page_supply(n: int):
                        f"**{prop['n_affected']}** nodes; cell makers affected: "
                        f"{', '.join(prop['affected_cell_makers']) or 'none'}. "
                        f"Propagated risk {prop['propagated_risk']:.2f}.")
-        st.plotly_chart(_network_figure(sc.build_graph(suppliers), highlight), use_container_width=True)
+        st.plotly_chart(_network_figure(sc.build_graph(suppliers), highlight), width='stretch')
     with right:
         st.subheader("Supplier locations")
         rows = []
@@ -409,10 +409,10 @@ def page_supply(n: int):
                         showscale=True, colorbar=dict(title="Risk"))))
         fig.update_layout(height=420, geo=dict(showland=True, landcolor="rgb(240,240,240)"),
                           margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     st.subheader("Material concentration (Herfindahl index)")
-    st.dataframe(sc.supplier_concentration_risk(suppliers), hide_index=True, use_container_width=True)
+    st.dataframe(sc.supplier_concentration_risk(suppliers), hide_index=True, width='stretch')
 
     st.subheader("🔍 Trace a cell to its source")
     cell_id = st.selectbox("Cell", sorted(load_battery_data()["cell_id"].unique()), key="trace_cell")
@@ -447,7 +447,7 @@ def page_maintenance(n: int):
         fig.add_trace(go.Bar(x=sub["assigned_day"], y=sub["jobs"], name=prio, marker_color=colour))
     fig.update_layout(barmode="stack", title="Jobs per day", xaxis_title="Day",
                       yaxis_title="Jobs", height=340)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     cc1, cc2 = st.columns(2)
     with cc1:
@@ -466,7 +466,7 @@ def page_maintenance(n: int):
                                                    color=BLUE)))
         fig2.update_layout(map_style="carto-positron", map=dict(center=dict(lat=22, lon=79), zoom=3),
                            height=300, margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width='stretch')
     copilot_box("How much maintenance downtime and charging cost can we save?", "maint")
 
 
@@ -484,7 +484,7 @@ def page_carbon(n: int):
             y=[csum["scope1_tonnes"], csum["scope3_current_tonnes"], csum["scope2_tonnes"], csum["scope3_ev_tonnes"]],
             marker_color=[RED, "#e8836b", AMBER, "#c9b037"]))
         fig1.update_layout(title="Emissions by scope (t/yr)", yaxis_title="t CO₂/yr", height=340)
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig1, width='stretch')
     with c2:
         by_class = csum["savings_by_class_tonnes"]
         fig2 = go.Figure(go.Treemap(labels=[f"{k} class" for k in by_class],
@@ -493,7 +493,7 @@ def page_carbon(n: int):
                                     marker=dict(colors=[GREEN, "#66bd63", "#a6d96a"][:len(by_class)])))
         fig2.update_layout(title="CO₂ avoided by vehicle class (treemap)", height=340,
                            margin=dict(t=40, l=0, r=0, b=0))
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width='stretch')
 
     st.subheader("⏱️ Hourly grid intensity & smart charging")
     grid = ec.hourly_grid_intensity()
@@ -504,7 +504,7 @@ def page_carbon(n: int):
     fig3.add_vrect(x0=18, x1=21, fillcolor=RED, opacity=0.12, line_width=0, annotation_text="peak (dirty)")
     fig3.update_layout(title="Grid carbon intensity over 24h (illustrative)",
                        xaxis_title="Hour", yaxis_title="kgCO₂/kWh", height=320)
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width='stretch')
     st.success(f"Charging off-peak instead of at the evening peak cuts grid CO₂ by "
                f"**{smart['co2_saved_pct']}%** (~{smart['annual_co2_saved_tonnes']:,.0f} t/yr).")
     st.metric("Carbon-credit value", f"₹{csum['carbon_credit_value_inr']:,.0f}/yr")
@@ -557,7 +557,7 @@ def page_scenario(n: int):
     fig.add_trace(go.Bar(name="Before", x=labels, y=[deltas[l]["before"] for l in labels], marker_color=GREY))
     fig.add_trace(go.Bar(name="After", x=labels, y=[deltas[l]["after"] for l in labels], marker_color=PURPLE))
     fig.update_layout(barmode="group", title="Before vs after", height=360)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     with st.expander("💬 Copilot: narrate this scenario", expanded=True):
         facts = res["narrative_facts"]
@@ -582,7 +582,7 @@ def page_twin(n: int):
         text=sample["vehicle_id"] + " · " + sample["depot"]))
     fig.update_layout(map_style="carto-positron", map=dict(center=dict(lat=22, lon=79), zoom=3.3),
                       height=420, margin=dict(l=0, r=0, t=0, b=0))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     a1, a2, a3 = st.columns(3)
     snap = battery_snapshot()
@@ -602,7 +602,7 @@ def page_twin(n: int):
     figs.add_trace(go.Scatter(x=ooc["sample"], y=ooc["value"], mode="markers", name="Out of control",
                               marker=dict(color=RED, size=11, symbol="x")))
     figs.update_layout(title="SPC control chart (3σ)", height=320, xaxis_title="Sample", yaxis_title="Value")
-    st.plotly_chart(figs, use_container_width=True)
+    st.plotly_chart(figs, width='stretch')
     for h in eq.root_cause_hints():
         colour = {"high": RED, "medium": AMBER}.get(h["severity"], GREY)
         st.markdown(f"<div style='border-left:4px solid {colour};padding-left:8px;margin-bottom:6px'>"
@@ -631,7 +631,7 @@ def page_system(n: int):
     fig.add_trace(go.Histogram(x=dist["reference"], name="reference", opacity=0.6, marker_color=BLUE))
     fig.add_trace(go.Histogram(x=dist["current"], name="current", opacity=0.6, marker_color=PURPLE))
     fig.update_layout(barmode="overlay", title=f"Prediction distribution — {metric}", height=320)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     st.caption("PSI < 0.1 stable · 0.1–0.25 moderate · > 0.25 significant. A real deployment "
                "would trigger investigation/retraining above threshold.")
 
